@@ -225,6 +225,29 @@
   .copy-btn:hover { background: var(--blue-50); border-color: var(--blue-200); color: var(--blue-600); }
   .copy-btn.copied { background: var(--green-50); border-color: var(--green-500); color: var(--green-700); }
 
+  /* ── 漢語拼音切換按鈕 ── */
+  .pinyin-toggle {
+    padding: 5px 10px;
+    border: 1.5px solid var(--blue-200);
+    border-radius: var(--radius-sm);
+    background: var(--blue-50);
+    font-size: 12px;
+    color: var(--blue-600);
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: .3px;
+  }
+  .pinyin-toggle:hover { background: var(--blue-500); color: #fff; border-color: var(--blue-500); }
+  .pinyin-toggle.active {
+    background: var(--blue-600);
+    color: #fff;
+    border-color: var(--blue-700);
+  }
+  .pinyin-toggle.active:hover { background: var(--blue-700); }
+
   /* ── 地圖搜尋按鈕 ── */
   .map-controls {
     padding: 0 24px 20px;
@@ -437,12 +460,17 @@
       </button>
     </div>
     <div class="addr-row">
-      <span class="addr-label">English</span>
+      <span class="addr-label" id="label-en">English</span>
       <span class="addr-value placeholder" id="display-en">–</span>
-      <button class="copy-btn" id="copy-en" onclick="copyAddr('en')" title="複製">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-        Copy
-      </button>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+        <button class="copy-btn" id="copy-en" onclick="copyAddr('en')" title="複製">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy
+        </button>
+        <button class="pinyin-toggle" id="btn-pinyin" onclick="togglePinyin()" title="切換漢語拼音">
+          漢語拼音
+        </button>
+      </div>
     </div>
     <div class="addr-row">
       <span class="addr-label">郵遞區號</span>
@@ -1045,6 +1073,82 @@ function translateHouseNum(raw) {
 /* ──────────────────────────────────
    5. 更新地址結果
 ────────────────────────────────── */
+
+
+/* ──────────────────────────────────
+   漢語拼音地址產生器
+────────────────────────────────── */
+const COUNTY_PINYIN = {
+  '基隆市':'Jilong Shi','臺北市':'Taibei Shi','新北市':'Xinbei Shi',
+  '桃園市':'Taoyuan Shi','新竹市':'Xinzhu Shi','新竹縣':'Xinzhu Xian',
+  '苗栗縣':'Miaoli Xian','臺中市':'Taizhong Shi','彰化縣':'Zhanghua Xian',
+  '南投縣':'Nantou Xian','雲林縣':'Yunlin Xian','嘉義市':'Jiayi Shi',
+  '嘉義縣':'Jiayi Xian','臺南市':'Tainan Shi','高雄市':'Gaoxiong Shi',
+  '屏東縣':'Pingdong Xian','宜蘭縣':'Yilan Xian','花蓮縣':'Hualian Xian',
+  '臺東縣':'Taidong Xian','澎湖縣':'Penghu Xian','金門縣':'Jinmen Xian',
+  '連江縣':'Lianjian Xian'
+};
+const DIST_SUFFIX_PINYIN = {
+  '區':'Qu','鄉':'Xiang','鎮':'Zhen','市':'Shi','里':'Li'
+};
+const ROAD_TYPE_PINYIN = [
+  [/大道/,'Dadao'],[/大街/,'Dajie'],
+  [/路/,'Lu'],[/街/,'Jie'],[/道/,'Dao'],
+];
+
+function districtToPinyin(dist) {
+  if (!dist) return '';
+  for (const [zh, py] of Object.entries(DIST_SUFFIX_PINYIN)) {
+    if (dist.endsWith(zh)) {
+      return formatPinyinRoadName(dist.slice(0,-zh.length)) + ' ' + py;
+    }
+  }
+  return formatPinyinRoadName(dist);
+}
+
+function roadToPinyin(road) {
+  if (!road) return '';
+  let s = road.trim(), sec = '', roadType = '';
+  s = s.replace(/([一二三四五六七八九\d１２３４５６７８９]+)段/g, (_, n) => {
+    const h = n.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+    sec = 'Di' + (/\d/.test(h) ? h : cnNumToArab(h)) + ' Duan';
+    return '';
+  });
+  for (const [re, py] of ROAD_TYPE_PINYIN) {
+    if (re.test(s)) { roadType = py; s = s.replace(re,''); break; }
+  }
+  const nameEn = formatPinyinRoadName(s.trim());
+  const parts = [];
+  if (nameEn||roadType) parts.push((nameEn+(roadType?' '+roadType:'')).trim());
+  if (sec) parts.push(sec);
+  return parts.join(', ');
+}
+
+function generatePinyinAddr() {
+  const county   = countyEl.value;
+  const district = districtEl.value;
+  const road     = roadnameEl?.value || '';
+  const houseNum = streetEl.value.trim();
+  if (!county) return '';
+  const countyPy   = COUNTY_PINYIN[county] || formatPinyinRoadName(county);
+  const districtPy = districtToPinyin(district);
+  const roadPy     = roadToPinyin(road);
+  const housePy    = translateHouseNum(houseNum);
+  const streetPy   = [housePy, roadPy].filter(Boolean).join(', ');
+  return [streetPy, districtPy, countyPy, 'Taiwan'].filter(Boolean).join(', ');
+}
+
+let pinyinMode = false;
+function togglePinyin() {
+  pinyinMode = !pinyinMode;
+  const btn   = document.getElementById('btn-pinyin');
+  const label = document.getElementById('label-en');
+  btn.classList.toggle('active', pinyinMode);
+  btn.textContent   = pinyinMode ? '✕ 英文' : '漢語拼音';
+  label.textContent = pinyinMode ? 'Pinyin' : 'English';
+  updateResult();
+}
+
 function updateResult() {
   const county   = countyEl.value;
   const district = districtEl.value;
@@ -1084,7 +1188,9 @@ function updateResult() {
   const enAddr  = enParts.join(', ');
 
   zhEl.textContent  = zhFull  || '（請填寫地址）';
-  enEl.textContent  = enAddr  || '–';
+  // 根據模式決定顯示英文或漢語拼音
+  const displayAddr = pinyinMode ? (generatePinyinAddr() || '–') : (enAddr || '–');
+  enEl.textContent  = displayAddr;
   zipEl.textContent = zip     || '–';
 
   zhEl.classList.toggle('placeholder', !zhFull);
@@ -1183,4 +1289,9 @@ function resetAll() {
 }
 </script>
 </body>
-</html>
+</html>,
+  /* ── 補充：數字字、常見地名首字（建表時被跳過） ── */
+  '一':'Yi','二':'Er','三':'San','四':'Si','五':'Wu',
+  '六':'Liu','七':'Qi','八':'Ba','九':'Jiu','十':'Shi',
+  '百':'Bai','千':'Qian','萬':'Wan','零':'Ling','兩':'Liang',
+
